@@ -152,13 +152,14 @@ const LOOTBOXES: LootBox[] = [
     priceCredits: 10,
     items: [
       {
-        variantId: 15439534293376, // TODO: remplacer par le vrai variant_id
+        variantId: 56903978746240, // ✅ vrai variant_id du "produit test"
         title: "Produit Test Unique",
         weight: 100,
       },
     ],
   },
 ];
+
 
 function getLootbox(boxId: string): LootBox | undefined {
   return LOOTBOXES.find((b) => b.id === boxId);
