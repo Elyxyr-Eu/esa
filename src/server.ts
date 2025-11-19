@@ -8,7 +8,7 @@ app.use(express.json());
 
 const PORT = process.env.PORT || 3000;
 
-// IMPORTANT : SHOPIFY_STORE_DOMAIN doit être le domaine myshopify.com, ex : elyxyr-eu.myshopify.com
+// IMPORTANT : SHOPIFY_STORE_DOMAIN doit être le domaine myshopify.com, ex : ton-boutique.myshopify.com
 const SHOPIFY_STORE_DOMAIN = process.env.SHOPIFY_STORE_DOMAIN;
 const SHOPIFY_ADMIN_API_ACCESS_TOKEN = process.env.SHOPIFY_ADMIN_API_ACCESS_TOKEN;
 const SHOPIFY_API_VERSION = process.env.SHOPIFY_API_VERSION || "2024-10";
@@ -131,7 +131,7 @@ async function setCustomerCredits(
 /* -------------------------------------------------------------------------- */
 
 type LootItem = {
-  variantId: number; // ID de la variante Shopify (integer)
+  variantId: number; // ID de la variante Shopify (PAS l'ID produit)
   title: string; // titre lisible (pour le JSON retour)
   weight: number; // poids de probabilité
 };
@@ -143,7 +143,8 @@ type LootBox = {
   items: LootItem[];
 };
 
-// ⚠️ À ADAPTER AVEC TES VRAIS VARIANTS PRODUITS
+// ⚠️ ICI tu dois mettre TON vrai variant_id (l'ID après /variants/...)
+// Pour l'instant on laisse 15439534293376 pour tester les erreurs, mais c'est un product_id.
 const LOOTBOXES: LootBox[] = [
   {
     id: "elyxyr_basic",
@@ -151,14 +152,13 @@ const LOOTBOXES: LootBox[] = [
     priceCredits: 10,
     items: [
       {
-        variantId: 15439534293376, 
+        variantId: 15439534293376, // TODO: remplacer par le vrai variant_id
         title: "Produit Test Unique",
-        weight: 100
-      }
+        weight: 100,
+      },
     ],
   },
 ];
-
 
 function getLootbox(boxId: string): LootBox | undefined {
   return LOOTBOXES.find((b) => b.id === boxId);
@@ -299,11 +299,18 @@ app.post("/apps/elyxyr/spin", async (req: Request, res: Response) => {
 
     // 4) Créer la commande Shopify pour le gain
     let orderId: number | null = null;
+    let orderError: string | null = null;
+
     try {
       const order = await createLootboxOrder(customerId, prize, box);
       orderId = order.orderId;
-    } catch (orderErr) {
+    } catch (orderErr: any) {
       console.error("[Lootbox] Erreur création commande", orderErr);
+      if (orderErr instanceof Error) {
+        orderError = orderErr.message;
+      } else {
+        orderError = String(orderErr);
+      }
     }
 
     // 5) Réponse JSON
@@ -320,6 +327,7 @@ app.post("/apps/elyxyr/spin", async (req: Request, res: Response) => {
         title: prize.title,
       },
       orderId,
+      orderError,
     });
   } catch (err: any) {
     console.error("[/apps/elyxyr/spin error]", err);
@@ -390,7 +398,8 @@ app.get("/apps/elyxyr/test-spin", (_req: Request, res: Response) => {
         const data = await resp.json();
         result.textContent = JSON.stringify(data, null, 2);
       } catch (e) {
-        result.textContent = 'Erreur: ' + e.message;
+        // @ts-ignore
+        result.textContent = 'Erreur: ' + (e && e.message ? e.message : e);
       }
     });
   </script>
@@ -400,7 +409,6 @@ app.get("/apps/elyxyr/test-spin", (_req: Request, res: Response) => {
   res.setHeader("Content-Type", "text/html; charset=utf-8");
   res.send(html);
 });
-
 
 /* -------------------------------------------------------------------------- */
 
@@ -412,3 +420,4 @@ app.listen(PORT, () => {
   console.log(`Spin:        POST /apps/elyxyr/spin`);
   console.log(`Test Spin:   GET  /apps/elyxyr/test-spin`);
 });
+
