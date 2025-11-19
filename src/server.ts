@@ -8,7 +8,7 @@ app.use(express.json());
 
 const PORT = process.env.PORT || 3000;
 
-// IMPORTANT : SHOPIFY_STORE_DOMAIN doit être le domaine myshopify.com, ex : ton-boutique.myshopify.com
+// IMPORTANT : SHOPIFY_STORE_DOMAIN doit être le domaine myshopify.com, ex : elyxyr-eu.myshopify.com
 const SHOPIFY_STORE_DOMAIN = process.env.SHOPIFY_STORE_DOMAIN;
 const SHOPIFY_ADMIN_API_ACCESS_TOKEN = process.env.SHOPIFY_ADMIN_API_ACCESS_TOKEN;
 const SHOPIFY_API_VERSION = process.env.SHOPIFY_API_VERSION || "2024-10";
@@ -131,9 +131,9 @@ async function setCustomerCredits(
 /* -------------------------------------------------------------------------- */
 
 type LootItem = {
-  variantId: number; // ID de la variante Shopify (PAS l'ID produit)
-  title: string; // titre lisible (pour le JSON retour)
-  weight: number; // poids de probabilité
+  variantId: number; // ID de la variante Shopify
+  title: string;
+  weight: number;
 };
 
 type LootBox = {
@@ -143,8 +143,7 @@ type LootBox = {
   items: LootItem[];
 };
 
-// ⚠️ ICI tu dois mettre TON vrai variant_id (l'ID après /variants/...)
-// Pour l'instant on laisse 15439534293376 pour tester les erreurs, mais c'est un product_id.
+// ✅ VRAI variant_id trouvé via debug-product : 56903978746240
 const LOOTBOXES: LootBox[] = [
   {
     id: "elyxyr_basic",
@@ -152,14 +151,13 @@ const LOOTBOXES: LootBox[] = [
     priceCredits: 10,
     items: [
       {
-        variantId: 56903978746240, // ✅ vrai variant_id du "produit test"
+        variantId: 56903978746240,
         title: "Produit Test Unique",
         weight: 100,
       },
     ],
   },
 ];
-
 
 function getLootbox(boxId: string): LootBox | undefined {
   return LOOTBOXES.find((b) => b.id === boxId);
@@ -177,14 +175,25 @@ function weightedRandom(items: LootItem[]): LootItem {
 }
 
 /* -------------------------------------------------------------------------- */
-/*                        Création de commande Shopify                        */
+/*                 Création de commande Shopify (version debug)               */
 /* -------------------------------------------------------------------------- */
 
 async function createLootboxOrder(
   customerId: string,
   prize: LootItem,
   box: LootBox
-): Promise<{ orderId: number }> {
+): Promise<{ orderId: number | null; raw: any }> {
+  if (!SHOPIFY_STORE_DOMAIN || !SHOPIFY_ADMIN_API_ACCESS_TOKEN) {
+    throw new Error("Shopify env vars not configured");
+  }
+
+  const url = `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/orders.json`;
+
+  const headers: HeadersInit = {
+    "Content-Type": "application/json",
+    "X-Shopify-Access-Token": SHOPIFY_ADMIN_API_ACCESS_TOKEN,
+  };
+
   const body = {
     order: {
       customer: {
@@ -202,12 +211,32 @@ async function createLootboxOrder(
     },
   };
 
-  const data = await shopifyRequest(`/orders.json`, {
+  const resp = await fetch(url, {
     method: "POST",
+    headers,
     body: JSON.stringify(body),
   });
 
-  return { orderId: data.order.id as number };
+  const text = await resp.text();
+  let json: any = null;
+
+  try {
+    json = text ? JSON.parse(text) : null;
+  } catch (e) {
+    console.error("[Order JSON parse error]", e, text);
+  }
+
+  // Si Shopify renvoie une erreur (4xx/5xx), on lève une exception avec le texte complet
+  if (!resp.ok) {
+    throw new Error(`Shopify order error ${resp.status}: ${text}`);
+  }
+
+  const orderId =
+    json && json.order && typeof json.order.id === "number"
+      ? (json.order.id as number)
+      : null;
+
+  return { orderId, raw: json ?? text };
 }
 
 /* -------------------------------------------------------------------------- */
@@ -259,9 +288,26 @@ app.post(
   }
 );
 
+// DEBUG PRODUIT (pour voir les variantes)
+app.get(
+  "/apps/elyxyr/debug-product/:productId",
+  async (req: Request, res: Response) => {
+    try {
+      const { productId } = req.params;
+      const data = await shopifyRequest(`/products/${productId}.json`, {
+        method: "GET",
+      });
+      res.json(data);
+    } catch (err: any) {
+      console.error("[DEBUG PRODUCT ERROR]", err);
+      res
+        .status(500)
+        .json({ error: "Unable to fetch product", details: String(err) });
+    }
+  }
+);
+
 // LOTERIE / LOOTBOX
-// POST /apps/elyxyr/spin
-// Body: { "customerId": "1234567890", "boxId": "elyxyr_basic" }
 app.post("/apps/elyxyr/spin", async (req: Request, res: Response) => {
   try {
     const { customerId, boxId } = req.body as {
@@ -298,23 +344,19 @@ app.post("/apps/elyxyr/spin", async (req: Request, res: Response) => {
     const afterCredits = beforeCredits - box.priceCredits;
     await setCustomerCredits(customerId, afterCredits);
 
-    // 4) Créer la commande Shopify pour le gain
+    // 4) Création commande (debug)
     let orderId: number | null = null;
     let orderError: string | null = null;
+    let orderRaw: any = null;
 
     try {
-      const order = await createLootboxOrder(customerId, prize, box);
-      orderId = order.orderId;
-    } catch (orderErr: any) {
-      console.error("[Lootbox] Erreur création commande", orderErr);
-      if (orderErr instanceof Error) {
-        orderError = orderErr.message;
-      } else {
-        orderError = String(orderErr);
-      }
+      const orderRes = await createLootboxOrder(customerId, prize, box);
+      orderId = orderRes.orderId;
+      orderRaw = orderRes.raw;
+    } catch (e: any) {
+      orderError = e instanceof Error ? e.message : String(e);
     }
 
-    // 5) Réponse JSON
     return res.json({
       success: true,
       customerId,
@@ -329,33 +371,13 @@ app.post("/apps/elyxyr/spin", async (req: Request, res: Response) => {
       },
       orderId,
       orderError,
+      orderRaw,
     });
   } catch (err: any) {
     console.error("[/apps/elyxyr/spin error]", err);
     res.status(500).json({ error: "Internal error on spin" });
   }
 });
-
-
-/* -------------------------------------------------------------------------- */
-/*                       ROUTE DEBUG POUR VOIR UN PRODUIT                     */
-/* -------------------------------------------------------------------------- */
-
-app.get(
-  "/apps/elyxyr/debug-product/:productId",
-  async (req: Request, res: Response) => {
-    try {
-      const { productId } = req.params;
-      const data = await shopifyRequest(`/products/${productId}.json`, {
-        method: "GET",
-      });
-      res.json(data);
-    } catch (err: any) {
-      console.error("[DEBUG PRODUCT ERROR]", err);
-      res.status(500).json({ error: "Unable to fetch product", details: String(err) });
-    }
-  }
-);
 
 /* -------------------------------------------------------------------------- */
 /*                      PAGE DE TEST VISUELLE POUR SPIN                       */
@@ -442,4 +464,5 @@ app.listen(PORT, () => {
   console.log(`Spin:        POST /apps/elyxyr/spin`);
   console.log(`Test Spin:   GET  /apps/elyxyr/test-spin`);
 });
+
 
