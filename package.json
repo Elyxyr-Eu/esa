@@ -1,0 +1,32 @@
+{
+  "name": "esa",
+  "version": "1.0.0",
+  "description": "Elyxyr Shopify App (crédits, lootbox, TCG / boxbreak)",
+  "main": "dist/server.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/server.js"
+  },
+  "keywords": [
+    "shopify",
+    "elyxyr",
+    "credits",
+    "lootbox",
+    "tcg",
+    "boxbreak"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "dotenv": "^16.4.0",
+    "express": "^4.19.0"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
