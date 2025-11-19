@@ -371,8 +371,16 @@ app.get("/apps/elyxyr/test-spin", (_req: Request, res: Response) => {
     const result = document.getElementById('result');
 
     btn.addEventListener('click', async () => {
-      const customerId = (document.getElementById('customerId') as HTMLInputElement).value.trim();
-      const boxId = (document.getElementById('boxId') as HTMLInputElement).value.trim();
+      const customerInput = document.getElementById('customerId');
+      const boxInput = document.getElementById('boxId');
+
+      if (!customerInput || !boxInput) {
+        result.textContent = 'Inputs introuvables ?';
+        return;
+      }
+
+      const customerId = customerInput.value.trim();
+      const boxId = boxInput.value.trim();
 
       if (!customerId || !boxId) {
         result.textContent = 'Veuillez renseigner customerId et boxId.';
@@ -391,7 +399,7 @@ app.get("/apps/elyxyr/test-spin", (_req: Request, res: Response) => {
         const data = await resp.json();
         result.textContent = JSON.stringify(data, null, 2);
       } catch (e) {
-        result.textContent = 'Erreur: ' + (e as Error).message;
+        result.textContent = 'Erreur: ' + e.message;
       }
     });
   </script>
@@ -401,6 +409,7 @@ app.get("/apps/elyxyr/test-spin", (_req: Request, res: Response) => {
   res.setHeader("Content-Type", "text/html; charset=utf-8");
   res.send(html);
 });
+
 
 /* -------------------------------------------------------------------------- */
 
