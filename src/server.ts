@@ -133,18 +133,17 @@ async function setCustomerCredits(
 type LootItem = {
   variantId: number; // ID de la variante Shopify (integer)
   title: string; // titre lisible (pour le JSON retour)
-  weight: number; // poids de probabilité (plus c'est grand, plus c'est fréquent)
+  weight: number; // poids de probabilité
 };
 
 type LootBox = {
-  id: string; // identifiant interne, ex: "basic"
+  id: string;
   name: string;
   priceCredits: number;
   items: LootItem[];
 };
 
 // ⚠️ À ADAPTER AVEC TES VRAIS VARIANTS PRODUITS
-// Tu peux commencer avec des faux IDs pour tester la logique.
 const LOOTBOXES: LootBox[] = [
   {
     id: "elyxyr_basic",
@@ -152,7 +151,7 @@ const LOOTBOXES: LootBox[] = [
     priceCredits: 10,
     items: [
       {
-        variantId: 1234567890, // met ici un vrai variant_id Shopify
+        variantId: 1234567890, // TODO: mettre un vrai variant_id
         title: "Booster Pokémon - Commun",
         weight: 60,
       },
@@ -314,8 +313,6 @@ app.post("/apps/elyxyr/spin", async (req: Request, res: Response) => {
       orderId = order.orderId;
     } catch (orderErr) {
       console.error("[Lootbox] Erreur création commande", orderErr);
-      // On ne remonte pas l'erreur au client pour ne pas casser l'expérience,
-      // mais en prod tu peux décider de rollback les crédits si nécessaire.
     }
 
     // 5) Réponse JSON
@@ -340,6 +337,72 @@ app.post("/apps/elyxyr/spin", async (req: Request, res: Response) => {
 });
 
 /* -------------------------------------------------------------------------- */
+/*                      PAGE DE TEST VISUELLE POUR SPIN                       */
+/* -------------------------------------------------------------------------- */
+
+app.get("/apps/elyxyr/test-spin", (_req: Request, res: Response) => {
+  const html = `<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <title>Test Loterie Elyxyr</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+</head>
+<body style="font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif; background:#050816; color:#f9fafb; padding:24px;">
+  <h1 style="margin-bottom:16px;">Test Loterie Elyxyr</h1>
+  <p style="opacity:0.8; margin-bottom:20px;">Formulaire de test pour la route <code>/apps/elyxyr/spin</code>.</p>
+
+  <div style="max-width:480px; padding:16px; border-radius:12px; border:1px solid #4b5563; background:#020617; margin-bottom:20px;">
+    <label style="display:block; font-size:14px; margin-bottom:4px;">ID Client Shopify</label>
+    <input id="customerId" type="text" value="24070351749504" style="width:100%; padding:8px 10px; border-radius:8px; border:1px solid #4b5563; background:#020617; color:#f9fafb; margin-bottom:12px;" />
+
+    <label style="display:block; font-size:14px; margin-bottom:4px;">ID de la lootbox</label>
+    <input id="boxId" type="text" value="elyxyr_basic" style="width:100%; padding:8px 10px; border-radius:8px; border:1px solid #4b5563; background:#020617; color:#f9fafb; margin-bottom:16px;" />
+
+    <button id="spinBtn" style="width:100%; padding:10px 14px; border:none; border-radius:999px; background:#7c3aed; color:white; font-weight:600; cursor:pointer;">
+      Lancer la box
+    </button>
+  </div>
+
+  <pre id="result" style="white-space:pre-wrap; background:#020617; border-radius:12px; padding:16px; border:1px solid #4b5563;"></pre>
+
+  <script>
+    const btn = document.getElementById('spinBtn');
+    const result = document.getElementById('result');
+
+    btn.addEventListener('click', async () => {
+      const customerId = (document.getElementById('customerId') as HTMLInputElement).value.trim();
+      const boxId = (document.getElementById('boxId') as HTMLInputElement).value.trim();
+
+      if (!customerId || !boxId) {
+        result.textContent = 'Veuillez renseigner customerId et boxId.';
+        return;
+      }
+
+      result.textContent = 'Lancement...';
+
+      try {
+        const resp = await fetch('/apps/elyxyr/spin', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ customerId, boxId })
+        });
+
+        const data = await resp.json();
+        result.textContent = JSON.stringify(data, null, 2);
+      } catch (e) {
+        result.textContent = 'Erreur: ' + (e as Error).message;
+      }
+    });
+  </script>
+</body>
+</html>
+`;
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  res.send(html);
+});
+
+/* -------------------------------------------------------------------------- */
 
 app.listen(PORT, () => {
   console.log(`Elyxyr app server running on port ${PORT}`);
@@ -347,4 +410,5 @@ app.listen(PORT, () => {
   console.log(`GET credits: /apps/elyxyr/credits/:customerId`);
   console.log(`SET credits: POST /apps/elyxyr/credits/:customerId`);
   console.log(`Spin:        POST /apps/elyxyr/spin`);
+  console.log(`Test Spin:   GET  /apps/elyxyr/test-spin`);
 });
