@@ -335,6 +335,27 @@ app.post("/apps/elyxyr/spin", async (req: Request, res: Response) => {
   }
 });
 
+
+/* -------------------------------------------------------------------------- */
+/*                       ROUTE DEBUG POUR VOIR UN PRODUIT                     */
+/* -------------------------------------------------------------------------- */
+
+app.get(
+  "/apps/elyxyr/debug-product/:productId",
+  async (req: Request, res: Response) => {
+    try {
+      const { productId } = req.params;
+      const data = await shopifyRequest(`/products/${productId}.json`, {
+        method: "GET",
+      });
+      res.json(data);
+    } catch (err: any) {
+      console.error("[DEBUG PRODUCT ERROR]", err);
+      res.status(500).json({ error: "Unable to fetch product", details: String(err) });
+    }
+  }
+);
+
 /* -------------------------------------------------------------------------- */
 /*                      PAGE DE TEST VISUELLE POUR SPIN                       */
 /* -------------------------------------------------------------------------- */
