@@ -8,7 +8,7 @@ app.use(express.json());
 
 const PORT = process.env.PORT || 3000;
 
-// IMPORTANT : SHOPIFY_STORE_DOMAIN doit être le domaine myshopify.com, ex : elyxyr-eu.myshopify.com
+// IMPORTANT : SHOPIFY_STORE_DOMAIN doit être le domaine myshopify.com, ex : ton-boutique.myshopify.com
 const SHOPIFY_STORE_DOMAIN = process.env.SHOPIFY_STORE_DOMAIN;
 const SHOPIFY_ADMIN_API_ACCESS_TOKEN = process.env.SHOPIFY_ADMIN_API_ACCESS_TOKEN;
 const SHOPIFY_API_VERSION = process.env.SHOPIFY_API_VERSION || "2024-10";
@@ -131,7 +131,7 @@ async function setCustomerCredits(
 /* -------------------------------------------------------------------------- */
 
 type LootItem = {
-  variantId: number; // ID de la variante Shopify
+  variantId: number; // ID de la VARIANTE Shopify
   title: string;
   weight: number;
 };
@@ -143,7 +143,7 @@ type LootBox = {
   items: LootItem[];
 };
 
-// ✅ VRAI variant_id trouvé via debug-product : 56903978746240
+// ✅ VRAI variant_id récupéré via /debug-product
 const LOOTBOXES: LootBox[] = [
   {
     id: "elyxyr_basic",
@@ -175,7 +175,7 @@ function weightedRandom(items: LootItem[]): LootItem {
 }
 
 /* -------------------------------------------------------------------------- */
-/*                 Création de commande Shopify (version debug)               */
+/*               Création de commande Shopify (avec debug complet)            */
 /* -------------------------------------------------------------------------- */
 
 async function createLootboxOrder(
@@ -226,15 +226,22 @@ async function createLootboxOrder(
     console.error("[Order JSON parse error]", e, text);
   }
 
-  // Si Shopify renvoie une erreur (4xx/5xx), on lève une exception avec le texte complet
   if (!resp.ok) {
+    // Shopify a renvoyé une erreur (4xx/5xx)
     throw new Error(`Shopify order error ${resp.status}: ${text}`);
   }
 
-  const orderId =
-    json && json.order && typeof json.order.id === "number"
-      ? (json.order.id as number)
-      : null;
+  let orderId: number | null = null;
+
+  // Cas 1 : format classique { order: { ... } }
+  if (json && json.order && json.order.id) {
+    orderId = json.order.id;
+  }
+
+  // Cas 2 : format tableau { orders: [ { ... } ] }
+  if (!orderId && json && Array.isArray(json.orders) && json.orders.length > 0) {
+    orderId = json.orders[0].id;
+  }
 
   return { orderId, raw: json ?? text };
 }
