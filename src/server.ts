@@ -151,23 +151,14 @@ const LOOTBOXES: LootBox[] = [
     priceCredits: 10,
     items: [
       {
-        variantId: 1234567890, // TODO: mettre un vrai variant_id
-        title: "Booster Pokémon - Commun",
-        weight: 60,
-      },
-      {
-        variantId: 1234567891,
-        title: "Booster Pokémon - Rare",
-        weight: 30,
-      },
-      {
-        variantId: 1234567892,
-        title: "Display Pokémon - Jackpot",
-        weight: 10,
-      },
+        variantId: 15439534293376, 
+        title: "Produit Test Unique",
+        weight: 100
+      }
     ],
   },
 ];
+
 
 function getLootbox(boxId: string): LootBox | undefined {
   return LOOTBOXES.find((b) => b.id === boxId);
