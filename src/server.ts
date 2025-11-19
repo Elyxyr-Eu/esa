@@ -8,8 +8,7 @@ app.use(express.json());
 
 const PORT = process.env.PORT || 3000;
 
-// ⚠️ IMPORTANT : dans Render, mets bien
-// SHOPIFY_STORE_DOMAIN = ton-shop.myshopify.com (PAS ton domaine custom)
+// IMPORTANT : SHOPIFY_STORE_DOMAIN doit être le domaine myshopify.com, ex : elyxyr-eu.myshopify.com
 const SHOPIFY_STORE_DOMAIN = process.env.SHOPIFY_STORE_DOMAIN;
 const SHOPIFY_ADMIN_API_ACCESS_TOKEN = process.env.SHOPIFY_ADMIN_API_ACCESS_TOKEN;
 const SHOPIFY_API_VERSION = process.env.SHOPIFY_API_VERSION || "2024-10";
@@ -20,9 +19,10 @@ if (!SHOPIFY_STORE_DOMAIN || !SHOPIFY_ADMIN_API_ACCESS_TOKEN) {
   );
 }
 
-/**
- * Helper pour appeler l'API Admin Shopify (REST)
- */
+/* -------------------------------------------------------------------------- */
+/*                               Shopify helper                               */
+/* -------------------------------------------------------------------------- */
+
 async function shopifyRequest(
   path: string,
   options: RequestInit = {}
@@ -54,10 +54,10 @@ async function shopifyRequest(
   return data;
 }
 
-/**
- * Récupère les crédits Elyxyr d'un client
- * Metafield: namespace = "custom", key = "credits_elyxyr"
- */
+/* -------------------------------------------------------------------------- */
+/*                         Crédits client (metafield)                         */
+/* -------------------------------------------------------------------------- */
+
 async function getCustomerCredits(customerId: string): Promise<number> {
   const data = await shopifyRequest(
     `/customers/${customerId}/metafields.json?namespace=custom&key=credits_elyxyr`,
@@ -80,9 +80,6 @@ async function getCustomerCredits(customerId: string): Promise<number> {
   return isNaN(value) ? 0 : value;
 }
 
-/**
- * Met à jour les crédits Elyxyr d'un client
- */
 async function setCustomerCredits(
   customerId: string,
   newBalance: number
@@ -129,17 +126,109 @@ async function setCustomerCredits(
   }
 }
 
-/**
- * Ping simple
- */
+/* -------------------------------------------------------------------------- */
+/*                               Lootbox config                               */
+/* -------------------------------------------------------------------------- */
+
+type LootItem = {
+  variantId: number; // ID de la variante Shopify (integer)
+  title: string; // titre lisible (pour le JSON retour)
+  weight: number; // poids de probabilité (plus c'est grand, plus c'est fréquent)
+};
+
+type LootBox = {
+  id: string; // identifiant interne, ex: "basic"
+  name: string;
+  priceCredits: number;
+  items: LootItem[];
+};
+
+// ⚠️ À ADAPTER AVEC TES VRAIS VARIANTS PRODUITS
+// Tu peux commencer avec des faux IDs pour tester la logique.
+const LOOTBOXES: LootBox[] = [
+  {
+    id: "elyxyr_basic",
+    name: "Lootbox Elyxyr Basic",
+    priceCredits: 10,
+    items: [
+      {
+        variantId: 1234567890, // met ici un vrai variant_id Shopify
+        title: "Booster Pokémon - Commun",
+        weight: 60,
+      },
+      {
+        variantId: 1234567891,
+        title: "Booster Pokémon - Rare",
+        weight: 30,
+      },
+      {
+        variantId: 1234567892,
+        title: "Display Pokémon - Jackpot",
+        weight: 10,
+      },
+    ],
+  },
+];
+
+function getLootbox(boxId: string): LootBox | undefined {
+  return LOOTBOXES.find((b) => b.id === boxId);
+}
+
+function weightedRandom(items: LootItem[]): LootItem {
+  const totalWeight = items.reduce((sum, item) => sum + item.weight, 0);
+  const rnd = Math.random() * totalWeight;
+  let cum = 0;
+  for (const item of items) {
+    cum += item.weight;
+    if (rnd <= cum) return item;
+  }
+  return items[items.length - 1];
+}
+
+/* -------------------------------------------------------------------------- */
+/*                        Création de commande Shopify                        */
+/* -------------------------------------------------------------------------- */
+
+async function createLootboxOrder(
+  customerId: string,
+  prize: LootItem,
+  box: LootBox
+): Promise<{ orderId: number }> {
+  const body = {
+    order: {
+      customer: {
+        id: Number(customerId),
+      },
+      line_items: [
+        {
+          variant_id: prize.variantId,
+          quantity: 1,
+        },
+      ],
+      financial_status: "paid",
+      tags: "Elyxyr Lootbox",
+      note: `Gain lootbox ${box.name}`,
+    },
+  };
+
+  const data = await shopifyRequest(`/orders.json`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+  return { orderId: data.order.id as number };
+}
+
+/* -------------------------------------------------------------------------- */
+/*                                   Routes                                   */
+/* -------------------------------------------------------------------------- */
+
+// Ping simple
 app.get("/apps/elyxyr/ping", (_req: Request, res: Response) => {
   res.json({ status: "ok" });
 });
 
-/**
- * GET /apps/elyxyr/credits/:customerId
- * -> lit le solde de crédits
- */
+// GET crédits
 app.get(
   "/apps/elyxyr/credits/:customerId",
   async (req: Request, res: Response) => {
@@ -154,10 +243,7 @@ app.get(
   }
 );
 
-/**
- * POST /apps/elyxyr/credits/:customerId
- * Body: { "credits": 123 }
- */
+// SET crédits (admin / tests)
 app.post(
   "/apps/elyxyr/credits/:customerId",
   async (req: Request, res: Response) => {
@@ -182,9 +268,83 @@ app.post(
   }
 );
 
+// LOTERIE / LOOTBOX
+// POST /apps/elyxyr/spin
+// Body: { "customerId": "1234567890", "boxId": "elyxyr_basic" }
+app.post("/apps/elyxyr/spin", async (req: Request, res: Response) => {
+  try {
+    const { customerId, boxId } = req.body as {
+      customerId?: string;
+      boxId?: string;
+    };
+
+    if (!customerId || !boxId) {
+      return res
+        .status(400)
+        .json({ error: "Missing 'customerId' or 'boxId' in body." });
+    }
+
+    const box = getLootbox(boxId);
+    if (!box) {
+      return res.status(400).json({ error: `Unknown lootbox '${boxId}'` });
+    }
+
+    // 1) Vérifier crédits
+    const beforeCredits = await getCustomerCredits(customerId);
+
+    if (beforeCredits < box.priceCredits) {
+      return res.status(400).json({
+        error: "Not enough credits",
+        required: box.priceCredits,
+        current: beforeCredits,
+      });
+    }
+
+    // 2) Tirage au sort
+    const prize = weightedRandom(box.items);
+
+    // 3) Débiter les crédits
+    const afterCredits = beforeCredits - box.priceCredits;
+    await setCustomerCredits(customerId, afterCredits);
+
+    // 4) Créer la commande Shopify pour le gain
+    let orderId: number | null = null;
+    try {
+      const order = await createLootboxOrder(customerId, prize, box);
+      orderId = order.orderId;
+    } catch (orderErr) {
+      console.error("[Lootbox] Erreur création commande", orderErr);
+      // On ne remonte pas l'erreur au client pour ne pas casser l'expérience,
+      // mais en prod tu peux décider de rollback les crédits si nécessaire.
+    }
+
+    // 5) Réponse JSON
+    return res.json({
+      success: true,
+      customerId,
+      boxId: box.id,
+      boxName: box.name,
+      credits_before: beforeCredits,
+      credits_after: afterCredits,
+      price_credits: box.priceCredits,
+      prize: {
+        variantId: prize.variantId,
+        title: prize.title,
+      },
+      orderId,
+    });
+  } catch (err: any) {
+    console.error("[/apps/elyxyr/spin error]", err);
+    res.status(500).json({ error: "Internal error on spin" });
+  }
+});
+
+/* -------------------------------------------------------------------------- */
+
 app.listen(PORT, () => {
   console.log(`Elyxyr app server running on port ${PORT}`);
   console.log(`Ping:        /apps/elyxyr/ping`);
   console.log(`GET credits: /apps/elyxyr/credits/:customerId`);
   console.log(`SET credits: POST /apps/elyxyr/credits/:customerId`);
+  console.log(`Spin:        POST /apps/elyxyr/spin`);
 });
