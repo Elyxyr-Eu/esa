@@ -5,6 +5,19 @@ dotenv.config();
 
 const app = express();
 app.use(express.json());
+// Autoriser Shopify à appeler ton backend (CORS)
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", "https://vexjts-dp.myshopify.com"); // Ton domaine Shopify
+  res.header("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  res.header("Access-Control-Allow-Headers", "Content-Type, Accept");
+
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(200);
+  }
+
+  next();
+});
+
 
 const PORT = process.env.PORT || 3000;
 
