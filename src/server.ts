@@ -7,7 +7,7 @@ const app = express();
 app.use(express.json());
 
 /* -------------------------------------------------------------------------- */
-/*                              🔥 CORS 100% OK                               */
+/*                           🔥  CORS SHOPIFY OK                               */
 /* -------------------------------------------------------------------------- */
 
 const allowedOrigins = [
@@ -25,32 +25,22 @@ app.use((req, res, next) => {
   res.header("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
   res.header("Access-Control-Allow-Headers", "Content-Type, Accept");
 
-  if (req.method === "OPTIONS") {
-    return res.sendStatus(200);
-  }
+  if (req.method === "OPTIONS") return res.sendStatus(200);
 
   next();
 });
 
-
 /* -------------------------------------------------------------------------- */
-/*                            ⚙️ CONFIG SHOPIFY                                */
+/*                           ⚙️ PARAMÈTRES SHOPIFY                             */
 /* -------------------------------------------------------------------------- */
 
 const PORT = process.env.PORT || 3000;
-
-const SHOPIFY_STORE_DOMAIN = process.env.SHOPIFY_STORE_DOMAIN as string;
-const SHOPIFY_ADMIN_API_ACCESS_TOKEN = process.env.SHOPIFY_ADMIN_API_ACCESS_TOKEN as string;
-const SHOPIFY_API_VERSION = (process.env.SHOPIFY_API_VERSION || "2024-10") as string;
-
-
-if (!SHOPIFY_STORE_DOMAIN || !SHOPIFY_ADMIN_API_ACCESS_TOKEN) {
-  console.warn("[Elyxyr] ⚠️ SHOPIFY_STORE_DOMAIN ou SHOPIFY_ADMIN_API_ACCESS_TOKEN manquant.");
-}
-
+const SHOPIFY_STORE_DOMAIN = process.env.SHOPIFY_STORE_DOMAIN!;
+const SHOPIFY_ADMIN_API_ACCESS_TOKEN = process.env.SHOPIFY_ADMIN_API_ACCESS_TOKEN!;
+const SHOPIFY_API_VERSION = process.env.SHOPIFY_API_VERSION || "2024-10";
 
 /* -------------------------------------------------------------------------- */
-/*                             🔧 Shopify Request                              */
+/*                       🔧 FONCTION REQUÊTE SHOPIFY                          */
 /* -------------------------------------------------------------------------- */
 
 async function shopifyRequest(path: string, options: RequestInit = {}) {
@@ -63,49 +53,41 @@ async function shopifyRequest(path: string, options: RequestInit = {}) {
   };
 
   const response = await fetch(url, { ...options, headers });
-
   const text = await response.text();
 
-  let data: any = {};
-  try {
-    data = text ? JSON.parse(text) : {};
-  } catch {
-    data = {};
-  }
+  let data = {};
+  try { data = text ? JSON.parse(text) : {}; } catch {}
 
   if (!response.ok) {
-    console.error("[Shopify API Error]", response.status, text);
+    console.error("[Shopify API ERROR]", response.status, text);
     throw new Error(`Shopify API error: ${response.status} - ${text}`);
   }
 
   return data;
 }
 
-
 /* -------------------------------------------------------------------------- */
-/*                         🔥 METAFIELDS CRÉDITS CLIENT                       */
+/*                     🔥 MÉTAFIELS CRÉDITS CLIENT                            */
 /* -------------------------------------------------------------------------- */
 
 async function getCustomerCredits(customerId: string): Promise<number> {
   const data = await shopifyRequest(
-    `/customers/${customerId}/metafields.json?namespace=custom&key=credits_elyxyr`,
-    { method: "GET" }
+    `/customers/${customerId}/metafields.json?namespace=custom&key=credits_elyxyr`
   );
 
-  const metafields = (data.metafields || []) as Array<{ value: string }>;
+  const metafields = (data as any).metafields || [];
   if (!metafields.length) return 0;
 
   const val = parseInt(metafields[0].value, 10);
   return isNaN(val) ? 0 : val;
 }
 
-async function setCustomerCredits(customerId: string, newBalance: number): Promise<void> {
+async function setCustomerCredits(customerId: string, newBalance: number) {
   const data = await shopifyRequest(
-    `/customers/${customerId}/metafields.json?namespace=custom&key=credits_elyxyr`,
-    { method: "GET" }
+    `/customers/${customerId}/metafields.json?namespace=custom&key=credits_elyxyr`
   );
 
-  const metafields = (data.metafields || []) as Array<{ id: number }>;
+  const metafields = (data as any).metafields || [];
 
   if (metafields.length > 0) {
     const mfId = metafields[0].id;
@@ -115,7 +97,7 @@ async function setCustomerCredits(customerId: string, newBalance: number): Promi
       body: JSON.stringify({
         metafield: {
           id: mfId,
-          value: String(newBalance),
+          value: `${newBalance}`,
           type: "number_integer"
         }
       })
@@ -127,7 +109,7 @@ async function setCustomerCredits(customerId: string, newBalance: number): Promi
         metafield: {
           namespace: "custom",
           key: "credits_elyxyr",
-          value: String(newBalance),
+          value: `${newBalance}`,
           type: "number_integer",
           owner_id: Number(customerId),
           owner_resource: "customer"
@@ -137,49 +119,15 @@ async function setCustomerCredits(customerId: string, newBalance: number): Promi
   }
 }
 
-
 /* -------------------------------------------------------------------------- */
-/*                                🎁 LOOTBOXES                                */
+/*                     🎯 WEIGHTED RANDOM DYNAMIQUE                           */
 /* -------------------------------------------------------------------------- */
 
-type LootItem = {
-  variantId: number;
-  title: string;
-  weight: number;
-};
+function weightedRandom(items: any[]) {
+  const totalWeight = items.reduce((sum, i) => sum + i.weight, 0);
+  const rnd = Math.random() * totalWeight;
 
-type LootBox = {
-  id: string;
-  name: string;
-  priceCredits: number;
-  items: LootItem[];
-};
-
-// 🔥 TON PRODUIT TEST
-const LOOTBOXES: LootBox[] = [
-  {
-    id: "elyxyr_basic",
-    name: "Lootbox Elyxyr Basic",
-    priceCredits: 10,
-    items: [
-      {
-        variantId: 56903978746240,
-        title: "Produit Test Unique",
-        weight: 100
-      }
-    ]
-  }
-];
-
-function getLootbox(boxId: string) {
-  return LOOTBOXES.find(b => b.id === boxId);
-}
-
-function weightedRandom(items: LootItem[]): LootItem {
-  const total = items.reduce((s, i) => s + i.weight, 0);
-  const rnd = Math.random() * total;
   let sum = 0;
-
   for (const item of items) {
     sum += item.weight;
     if (rnd <= sum) return item;
@@ -187,12 +135,11 @@ function weightedRandom(items: LootItem[]): LootItem {
   return items[items.length - 1];
 }
 
-
 /* -------------------------------------------------------------------------- */
-/*                        🧾 Création commande Shopify                        */
+/*                🧾 CRÉATION COMMANDE AUTOMATIQUE SHOPIFY                    */
 /* -------------------------------------------------------------------------- */
 
-async function createLootboxOrder(customerId: string, prize: LootItem, box: LootBox) {
+async function createLootboxOrder(customerId: string, prize: any) {
   const data = await shopifyRequest(`/orders.json`, {
     method: "POST",
     body: JSON.stringify({
@@ -206,86 +153,80 @@ async function createLootboxOrder(customerId: string, prize: LootItem, box: Loot
         ],
         financial_status: "paid",
         tags: "Elyxyr Lootbox",
-        note: `Gain lootbox ${box.name}`
+        note: `Gain lootbox : ${prize.title}`
       }
     })
   });
 
-  return data?.order?.id ?? null;
+  return (data as any)?.order?.id ?? null;
 }
-
 
 /* -------------------------------------------------------------------------- */
 /*                                   ROUTES                                   */
 /* -------------------------------------------------------------------------- */
 
-// Test API
-app.get("/apps/elyxyr/ping", (_req, res) => {
-  res.setHeader("Access-Control-Allow-Origin", _req.headers.origin || "*");
+app.get("/apps/elyxyr/ping", (req, res) => {
+  res.setHeader("Access-Control-Allow-Origin", req.headers.origin || "*");
   res.json({ status: "ok" });
 });
 
-// Credits GET
 app.get("/apps/elyxyr/credits/:customerId", async (req, res) => {
   try {
-    res.setHeader("Access-Control-Allow-Origin", req.headers.origin || "*");
-
     const credits = await getCustomerCredits(req.params.customerId);
     res.json({ customerId: req.params.customerId, credits });
-  } catch (e) {
+  } catch {
     res.status(500).json({ error: "Unable to fetch credits" });
   }
 });
 
-// Credits SET
-app.post("/apps/elyxyr/credits/:customerId", async (req, res) => {
-  try {
-    res.setHeader("Access-Control-Allow-Origin", req.headers.origin || "*");
+/* -------------------------------------------------------------------------- */
+/*                       🎁 SPIN — VERSION DYNAMIQUE                           */
+/* -------------------------------------------------------------------------- */
+/*
 
-    const credits = Number(req.body.credits);
-    if (isNaN(credits)) return res.status(400).json({ error: "Invalid credits" });
+👉 Shopify envoie :
+{
+  customerId: "24070...",
+  boxId: "elyxyr_basic",
+  priceCredits: 10,
+  items: [
+    { variantId: 123, title:"X", weight:10 },
+    { variantId: 456, title:"Y", weight:50 },
+    etc...
+  ]
+}
 
-    await setCustomerCredits(req.params.customerId, Math.floor(credits));
+*/
 
-    res.json({ customerId: req.params.customerId, credits: Math.floor(credits) });
-  } catch (e) {
-    res.status(500).json({ error: "Unable to set credits" });
-  }
-});
-
-// Spin
 app.post("/apps/elyxyr/spin", async (req, res) => {
   res.setHeader("Access-Control-Allow-Origin", req.headers.origin || "*");
 
   try {
-    const { customerId, boxId } = req.body;
+    const { customerId, priceCredits, items } = req.body;
 
-    if (!customerId || !boxId) {
-      return res.status(400).json({ error: "Missing customerId or boxId" });
+    if (!customerId || !Array.isArray(items) || !items.length) {
+      return res.status(400).json({ error: "Missing or invalid items" });
     }
 
-    const box = getLootbox(boxId);
-    if (!box) return res.status(400).json({ error: "Unknown lootbox" });
-
-    const beforeCredits = await getCustomerCredits(customerId);
-    if (beforeCredits < box.priceCredits) {
+    const before = await getCustomerCredits(customerId);
+    if (before < priceCredits) {
       return res.status(400).json({
         error: "Not enough credits",
-        current: beforeCredits,
-        required: box.priceCredits
+        current: before,
+        required: priceCredits
       });
     }
 
-    const afterCredits = beforeCredits - box.priceCredits;
+    const after = before - priceCredits;
+    const prize = weightedRandom(items);
 
-    const prize = weightedRandom(box.items);
-    await setCustomerCredits(customerId, afterCredits);
+    await setCustomerCredits(customerId, after);
 
-    let orderId: number | null = null;
-    let orderError: string | null = null;
+    let orderId = null;
+    let orderError = null;
 
     try {
-      orderId = await createLootboxOrder(customerId, prize, box);
+      orderId = await createLootboxOrder(customerId, prize);
     } catch (err: any) {
       orderError = err.message || String(err);
     }
@@ -293,57 +234,19 @@ app.post("/apps/elyxyr/spin", async (req, res) => {
     res.json({
       success: true,
       customerId,
-      boxId,
-      boxName: box.name,
-      credits_before: beforeCredits,
-      credits_after: afterCredits,
-      price_credits: box.priceCredits,
-      prize: {
-        variantId: prize.variantId,
-        title: prize.title
-      },
+      credits_before: before,
+      credits_after: after,
+      price_credits: priceCredits,
+      prize,
       orderId,
       orderError
     });
+
   } catch (e) {
     console.error("SPIN ERROR", e);
-    res.status(500).json({ error: "Internal error on spin" });
+    res.status(500).json({ error: "Internal error" });
   }
 });
-
-
-/* -------------------------------------------------------------------------- */
-/*                             UI DE TEST VISUEL                               */
-/* -------------------------------------------------------------------------- */
-
-app.get("/apps/elyxyr/test-spin", (_req, res) => {
-  res.setHeader("Access-Control-Allow-Origin", _req.headers.origin || "*");
-
-  res.setHeader("Content-Type", "text/html; charset=utf-8");
-  res.send(`
-<html><body>
-<h1>Test Spin</h1>
-<form>
-<input id="cid" value="24070351749504" />
-<button type="button" onclick="spin()">Spin</button>
-</form>
-<pre id="out"></pre>
-<script>
-function spin() {
-  fetch('/apps/elyxyr/spin', {
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({ customerId:document.getElementById('cid').value, boxId:'elyxyr_basic' })
-  })
-  .then(r=>r.json())
-  .then(j=> document.getElementById('out').textContent = JSON.stringify(j,null,2))
-  .catch(e=> document.getElementById('out').textContent = e);
-}
-</script>
-</body></html>
-`);
-});
-
 
 /* -------------------------------------------------------------------------- */
 
